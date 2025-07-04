@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Data Dashboard</title>
+    <!-- Tailwind CSS CDN for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js Adapter for Date-fns (for time scales) -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+
+    <style>
+        /* Custom styles for the body and overall layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background */
+            color: #f3f4f6; /* Light text */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem;
+            min-height: 100vh; /* Ensure full viewport height */
+        }
+        /* Styling for the main content containers */
+        .card {
+            background-color: #1f2937; /* Slightly lighter dark background for cards */
+            padding: 1.5rem;
+            border-radius: 0.75rem; /* Rounded corners */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+            width: 100%;
+            max-width: 48rem; /* Max width for better readability on large screens */
+        }
+        /* Chart container to manage canvas size */
+        .chart-container {
+            position: relative; /* Needed for responsive canvas */
+            height: 400px; /* Fixed height for the chart */
+            width: 100%;
+        }
+        /* Hide elements by default, shown by JS */
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <!-- Main application container -->
+    <div class="w-full max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
+        <!-- Header Section -->
+        <h1 class="text-4xl sm:text-5xl font-extrabold text-center mb-8 text-blue-400">
+            ☀️ Solar Data Dashboard ☀️
+        </h1>
+
+        <!-- File Upload Card -->
+        <div class="card">
+            <label for="file-upload" class="block text-lg sm:text-xl font-semibold mb-4 text-gray-200">
+                Upload Your CSV File
+            </label>
+            <input
+                id="file-upload"
+                type="file"
+                accept=".csv"
+                class="block w-full text-sm text-gray-300
+                       file:mr-4 file:py-2 file:px-4
+                       file:rounded-full file:border-0
+                       file:text-sm file:font-semibold
+                       file:bg-blue-600 file:text-white
+                       hover:file:bg-blue-700
+                       cursor-pointer transition duration-300 ease-in-out"
+            />
+            <p id="loading-message" class="mt-4 text-blue-300 text-center hidden">
+                <span class="animate-pulse">Loading data... Please wait.</span>
+            </p>
+            <p id="error-message" class="mt-4 text-red-400 text-center font-medium hidden"></p>
+        </div>
+
+        <!-- Filter and Chart Display Card -->
+        <div class="card">
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-200 mb-4 sm:mb-0">Energy Trends</h2>
+                <div class="flex items-center">
+                    <label for="filter-select" class="text-lg font-medium mr-3 text-gray-300">
+                        Filter by:
+                    </label>
+                    <select
+                        id="filter-select"
+                        class="p-2 rounded-md bg-gray-700 text-gray-100 border border-gray-600
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition duration-200 ease-in-out"
+                    >
+                        <option value="Day">Last 24 Hours</option>
+                        <option value="Week">Last 7 Days</option>
+                        <option value="Month">Last 30 Days</option>
+                        <option value="All Time" selected>All Time</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div id="no-data-message" class="no-data text-gray-400 text-center py-8 hidden">
+                <p>No data available for the selected filter or no CSV file uploaded yet.</p>
+                <p>Please upload a CSV file to see the magic!</p>
+            </div>
+            <div class="chart-container">
+                <canvas id="solarChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Sample CSV Data (for initial load) ---
+        // This data will be displayed when the page first loads, before any file is uploaded.
+        // It helps to show the dashboard functionality immediately.
+        const initialCsvData = `Serial Number,Timestamp,Data Coverage (%),Net Grid Import (Wh),Net Grid Export (Wh),Total Generation (Wh),Hybrid Inverter Load (Wh),External CT Type 1 Positive (Wh),External CT Type 2 Positive (Wh),External CT Type 1 Negative (Wh),External CT Type 2 Negative (Wh),Min Frequency (cHz),Max Frequency (cHz),Avg Frequency (cHz),Min Voltage (V) (dV),Max Voltage (V) (dV),Avg Voltage (V) (dV),Min PT 1000 #1 Temperature (DegC),Max PT 1000 #1 Temperature (DegC),Avg PT 1000 #1 Temperature (DegC),Min PT 1000 #2 Temperature (DegC),Max PT 1000 #2 Temperature (DegC),Avg PT 1000 #2 Temperature (DegC),Diverter Energy (L1) (Wh),Diverter Energy (L2) (Wh),Boosted Energy (L1) (Wh),Boosted Energy (L2) (Wh)
+14096505,2025-06-01T00:00:00.000Z,99.94,3353.10,0.00,1500.00,0.00,3354.77,0.00,0.00,0.00,4991,5009,5001.80,2229,2297,2269.48,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T01:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T02:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T03:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T04:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T05:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T06:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T07:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T08:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T09:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T10:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T11:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T12:00:00.000Z,100.00,0.00,2500.00,4000.00,0.00,0.00,0.00,0.00,0.00,5005,5011,5007.00,2325,2355,2340.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T13:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T14:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T15:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T16:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T17:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T18:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T19:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T20:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T21:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T22:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-01T23:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T00:00:00.000Z,99.94,3353.10,0.00,1500.00,0.00,3354.77,0.00,0.00,0.00,4991,5009,5001.80,2229,2297,2269.48,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T01:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T02:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T03:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T04:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T05:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T06:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T07:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T08:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T09:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T10:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T11:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T12:00:00.000Z,100.00,0.00,2500.00,4000.00,0.00,0.00,0.00,0.00,0.00,5005,5011,5007.00,2325,2355,2340.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T13:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T14:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T15:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T16:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T17:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T18:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T19:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T20:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T21:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T22:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-02T23:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T00:00:00.000Z,99.94,3353.10,0.00,1500.00,0.00,3354.77,0.00,0.00,0.00,4991,5009,5001.80,2229,2297,2269.48,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T01:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T02:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T03:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T04:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T05:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T06:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T07:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T08:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T09:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T10:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T11:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T12:00:00.000Z,100.00,0.00,2500.00,4000.00,0.00,0.00,0.00,0.00,0.00,5005,5011,5007.00,2325,2355,2340.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T13:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T14:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T15:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T16:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T17:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T18:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T19:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T20:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T21:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T22:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-03T23:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T00:00:00.000Z,99.94,3353.10,0.00,1500.00,0.00,3354.77,0.00,0.00,0.00,4991,5009,5001.80,2229,2297,2269.48,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T01:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T02:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T03:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T04:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T05:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T06:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T07:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T08:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T09:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T10:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T11:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T12:00:00.000Z,100.00,0.00,2500.00,4000.00,0.00,0.00,0.00,0.00,0.00,5005,5011,5007.00,2325,2355,2340.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T13:00:00.000Z,100.00,0.00,2000.00,3500.00,0.00,0.00,0.00,0.00,0.00,5004,5010,5006.00,2320,2350,2335.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T14:00:00:00.000Z,100.00,0.00,1500.00,3000.00,0.00,0.00,0.00,0.00,0.00,5003,5009,5005.00,2315,2345,2330.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T15:00:00.000Z,100.00,0.00,1000.00,2500.00,0.00,0.00,0.00,0.00,0.00,5002,5008,5004.00,2310,2340,2325.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T16:00:00.000Z,100.00,200.00,500.00,1000.00,0.00,200.00,0.00,0.00,0.00,5001,5007,5003.00,2305,2335,2320.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T17:00:00.000Z,100.00,500.00,100.00,200.00,0.00,500.00,0.00,0.00,0.00,5000,5006,5002.00,2300,2330,2315.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T18:00:00.000Z,100.00,1000.00,0.00,400.00,0.00,1000.00,0.00,0.00,0.00,4999,5005,5001.00,2295,2325,2310.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T19:00:00.000Z,100.00,1500.00,0.00,600.00,0.00,1500.00,0.00,0.00,0.00,4998,5004,5000.00,2290,2320,2305.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T20:00:00.000Z,99.99,2000.00,0.00,800.00,0.00,2000.00,0.00,0.00,0.00,4997,5003,4999.00,2285,2315,2300.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T21:00:00.000Z,99.98,2500.00,0.00,1000.00,0.00,2500.00,0.00,0.00,0.00,4996,5002,4998.10,2280,2310,2295.00,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T22:00:00.000Z,99.97,2853.60,0.00,1200.00,0.00,2852.20,0.00,0.00,0.00,4995,5001,4997.60,2276,2308,2290.45,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+14096505,2025-06-04T23:00:00.000Z,100.00,3858.46,0.00,1800.00,0.00,3858.33,0.00,0.00,0.00,4994,5008,5000.23,2242,2309,2276.88,0,0,0.00,0,0,0.00,0.00,0.00,0.00,0.00
+`;
+
+        // --- DOM Element References ---
+        const fileInput = document.getElementById('file-upload');
+        const filterSelect = document.getElementById('filter-select');
+        const loadingMessage = document.getElementById('loading-message');
+        const errorMessage = document.getElementById('error-message');
+        const noDataMessage = document.getElementById('no-data-message');
+        const chartCanvas = document.getElementById('solarChart');
+        const ctx = chartCanvas.getContext('2d'); // Get the 2D rendering context for Chart.js
+
+        // --- Global State Variables ---
+        let allProcessedData = []; // Stores all parsed and processed data
+        let currentChartInstance = null; // Stores the active Chart.js instance
+
+        // --- Helper Function: Process a single row from CSV ---
+        // This function takes a raw row object from PapaParse and transforms it
+        // into a more usable format for our application, specifically parsing
+        // the timestamp and converting relevant energy values to numbers.
+        function processCsvRow(row) {
+            // Attempt to parse the timestamp. The CSV uses ISO 8601 format,
+            // which `new Date()` generally handles well.
+            const dateObject = new Date(row.Timestamp);
+
+            // Check if the date parsing was successful. If not, return null
+            // or an object indicating an error, to filter out bad rows later.
+            if (isNaN(dateObject.getTime())) {
+                console.warn('Invalid Timestamp encountered:', row.Timestamp);
+                return null; // Skip this row if timestamp is invalid
+            }
+
+            // Convert relevant energy values to numbers. Use parseFloat and
+            // default to 0 if conversion fails (e.g., empty string, non-numeric).
+            const totalGeneration = parseFloat(row['Total Generation (Wh)']) || 0;
+            const netGridImport = parseFloat(row['Net Grid Import (Wh)']) || 0;
+            const netGridExport = parseFloat(row['Net Grid Export (Wh)']) || 0;
+
+            return {
+                dateObject: dateObject,
+                // Using toISOString for consistent X-axis labels with Chart.js time scale
+                timestamp: dateObject.toISOString(),
+                totalGeneration: totalGeneration,
+                netGridImport: netGridImport,
+                netGridExport: netGridExport
+            };
+        }
+
+        // --- Core Function: Filter Data based on Time Period ---
+        // This function takes the full dataset and a filter string ('Day', 'Week', 'Month', 'All Time')
+        // and returns a subset of the data relevant to the selected period.
+        function filterData(data, filter) {
+            const now = new Date();
+            let startDate = new Date(); // Initialize with current date
+
+            // Determine the start date for filtering based on the selected period
+            switch (filter) {
+                case 'Day':
+                    // Set start date to the beginning of the current day (midnight)
+                    startDate.setHours(0, 0, 0, 0);
+                    break;
+                case 'Week':
+                    // Set start date to 7 days ago from the current time
+                    startDate.setDate(now.getDate() - 7);
+                    break;
+                case 'Month':
+                    // Set start date to 30 days ago from the current time
+                    startDate.setDate(now.getDate() - 30);
+                    break;
+                case 'All Time':
+                default:
+                    // For 'All Time', return all data, no filtering needed
+                    return data;
+            }
+
+            // Filter the data: include only rows whose dateObject is on or after the startDate
+            return data.filter(row => row.dateObject >= startDate);
+        }
+
+        // --- Core Function: Render/Update the Chart ---
+        // This function takes the filtered data and updates the Chart.js instance.
+        // It creates a new chart if one doesn't exist, or updates the existing one.
+        function renderChart(dataToDisplay) {
+            // If a chart instance already exists, destroy it to prevent memory leaks and conflicts
+            if (currentChartInstance) {
+                currentChartInstance.destroy();
+            }
+
+            // Show/hide the "No data" message based on whether there's data to display
+            if (dataToDisplay.length === 0) {
+                noDataMessage.classList.remove('hidden');
+                chartCanvas.classList.add('hidden'); // Hide canvas if no data
+                return; // Exit if no data
+            } else {
+                noDataMessage.classList.add('hidden');
+                chartCanvas.classList.remove('hidden'); // Show canvas if data is present
+            }
+
+            // Prepare data for Chart.js datasets
+            const labels = dataToDisplay.map(row => row.dateObject); // Use Date objects directly for time scale
+            const totalGenerationData = dataToDisplay.map(row => row.totalGeneration);
+            const netGridImportData = dataToDisplay.map(row => row.netGridImport);
+            const netGridExportData = dataToDisplay.map(row => row.netGridExport);
+
+            // Create a new Chart.js instance
+            currentChartInstance = new Chart(ctx, {
+                type: 'line', // Line chart type
+                data: {
+                    labels: labels, // X-axis labels (timestamps)
+                    datasets: [
+                        {
+                            label: 'Total Generation (Wh)',
+                            data: totalGenerationData,
+                            borderColor: '#34d399', // Green color
+                            backgroundColor: 'rgba(52, 211, 153, 0.2)', // Light green fill
+                            tension: 0.3, // Smooth line curves
+                            fill: true, // Fill area under the line
+                            pointRadius: 2, // Smaller points
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: 'Net Grid Import (Wh)',
+                            data: netGridImportData,
+                            borderColor: '#fcd34d', // Yellow color
+                            backgroundColor: 'rgba(252, 211, 77, 0.2)', // Light yellow fill
+                            tension: 0.3,
+                            fill: true,
+                            pointRadius: 2,
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: 'Net Grid Export (Wh)',
+                            data: netGridExportData,
+                            borderColor: '#60a5fa', // Blue color
+                            backgroundColor: 'rgba(96, 165, 250, 0.2)', // Light blue fill
+                            tension: 0.3,
+                            fill: true,
+                            pointRadius: 2,
+                            pointHoverRadius: 5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, // Chart resizes with its container
+                    maintainAspectRatio: false, // Allows height to be controlled by CSS
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e5e7eb', // Legend text color
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#374151', // Dark tooltip background
+                            titleColor: '#e5e7eb',
+                            bodyColor: '#d1d5db',
+                            borderColor: '#4b5563',
+                            borderWidth: 1,
+                            cornerRadius: 6,
+                            callbacks: {
+                                title: function(context) {
+                                    // Format tooltip title to a readable date/time
+                                    const date = new Date(context[0].label);
+                                    return date.toLocaleString('en-IE', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        second: '2-digit'
+                                    });
+                                },
+                                label: function(context) {
+                                    // Format tooltip label for each dataset
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toFixed(2) + ' Wh';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time', // Use time scale for date/time data
+                            time: {
+                                unit: 'hour', // Default unit for display
+                                tooltipFormat: 'MMM d, HH:mm:ss', // Format for tooltip
+                                displayFormats: {
+                                    hour: 'MMM d HH:mm', // Format for axis ticks
+                                    day: 'MMM d',
+                                    week: 'MMM dd',
+                                    month: 'MMM yyyy'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Timestamp',
+                                color: '#e5e7eb',
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                }
+                            },
+                            ticks: {
+                                color: '#d1d5db'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)', // Light grid lines
+                                drawBorder: true,
+                                borderColor: '#4b5563'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true, // Start Y-axis from zero
+                            title: {
+                                display: true,
+                                text: 'Energy (Wh)',
+                                color: '#e5e7eb',
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                }
+                            },
+                            ticks: {
+                                color: '#d1d5db'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                                drawBorder: true,
+                                borderColor: '#4b5563'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Event Handler: Handle CSV File Upload ---
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                // If no file is selected, clear messages and potentially chart
+                loadingMessage.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                noDataMessage.classList.remove('hidden');
+                if (currentChartInstance) {
+                    currentChartInstance.destroy();
+                    currentChartInstance = null;
+                }
+                allProcessedData = []; // Clear data
+                return;
+            }
+
+            // Show loading message, hide others
+            loadingMessage.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            noDataMessage.classList.add('hidden');
+
+            // Use PapaParse to parse the uploaded file
+            Papa.parse(file, {
+                header: true, // Treat the first row as headers
+                dynamicTyping: true, // Automatically convert numbers and booleans
+                skipEmptyLines: true, // Ignore empty rows
+                complete: (results) => {
+                    loadingMessage.classList.add('hidden'); // Hide loading message
+
+                    // Check for parsing errors
+                    if (results.errors.length) {
+                        errorMessage.textContent = `CSV Parsing Error: ${results.errors[0].message}`;
+                        errorMessage.classList.remove('hidden');
+                        console.error('PapaParse Errors:', results.errors);
+                        allProcessedData = []; // Clear data on error
+                        renderChart([]); // Render empty chart
+                        return;
+                    }
+
+                    // Process each row, filtering out any with invalid timestamps
+                    allProcessedData = results.data.map(processCsvRow).filter(row => row !== null);
+
+                    // If no valid data remains after processing
+                    if (allProcessedData.length === 0) {
+                        errorMessage.textContent = 'No valid data found in the CSV file after processing.';
+                        errorMessage.classList.remove('hidden');
+                        renderChart([]); // Render empty chart
+                        return;
+                    }
+
+                    // Apply the current filter and render the chart
+                    const currentFilter = filterSelect.value;
+                    const filtered = filterData(allProcessedData, currentFilter);
+                    renderChart(filtered);
+                },
+                error: (error) => {
+                    loadingMessage.classList.add('hidden');
+                    errorMessage.textContent = `File Read Error: ${error.message}`;
+                    errorMessage.classList.remove('hidden');
+                    console.error('File Read Error:', error);
+                    allProcessedData = []; // Clear data on error
+                    renderChart([]); // Render empty chart
+                }
+            });
+        });
+
+        // --- Event Handler: Handle Filter Selection Change ---
+        filterSelect.addEventListener('change', () => {
+            // Get the currently selected filter value
+            const currentFilter = filterSelect.value;
+            // Filter the globally stored data based on the new filter
+            const filtered = filterData(allProcessedData, currentFilter);
+            // Re-render the chart with the newly filtered data
+            renderChart(filtered);
+        });
+
+        // --- Initial Data Load on Page Load ---
+        // This ensures the dashboard is populated with sample data immediately
+        // when the user opens the page, providing a better first experience.
+        document.addEventListener('DOMContentLoaded', () => {
+            // Parse the embedded initial CSV data
+            Papa.parse(initialCsvData, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    // Process each row, filtering out any with invalid timestamps
+                    allProcessedData = results.data.map(processCsvRow).filter(row => row !== null);
+
+                    // Apply the default filter ('All Time' is selected by default)
+                    const currentFilter = filterSelect.value;
+                    const filtered = filterData(allProcessedData, currentFilter);
+                    // Render the chart with the initially filtered data
+                    renderChart(filtered);
+                },
+                error: (error) => {
+                    errorMessage.textContent = `Initial Data Load Error: ${error.message}`;
+                    errorMessage.classList.remove('hidden');
+                    console.error('Initial Data Load Error:', error);
+                    renderChart([]); // Render empty chart on initial load error
+                }
+            });
+        });
+    </script>
+</body>
+</html>

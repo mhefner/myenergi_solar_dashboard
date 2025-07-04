@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpap-analyzer
+spec:
+  template:
+    spec:
+      containers:
+        - name: analyzer
+          image: mhefner1983/cpap-analyzer:dev  # tag it differently for dev
+          imagePullPolicy: Always
