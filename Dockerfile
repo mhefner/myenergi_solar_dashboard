@@ -1,11 +1,16 @@
-FROM python:3.9-slim
+# Use official NGINX base image
+FROM nginx:alpine
 
-WORKDIR /usr/src/app
+# Remove default nginx index page
+RUN rm -rf /usr/share/nginx/html/*
 
-RUN pip install flask
+# Copy your HTML (and any other assets) into the nginx html directory
+COPY index.html /usr/share/nginx/html/
 
-COPY app.py .
+# Optionally copy a custom nginx config (skip if default is fine)
+# COPY nginx.conf /etc/nginx/nginx.conf
 
-EXPOSE 8080
+# Expose port 80
+EXPOSE 80
 
-CMD ["python", "app.py"]
+# NGINX will run by default via CMD from base image
