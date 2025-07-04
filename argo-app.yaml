@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cpap-analyzer
+  name: solar-dashboard
   namespace: argocd
 spec:
   project: default

@@ -16,6 +16,6 @@ spec:
         - name: dockerhub-secret
       containers:
       - name: analyzer
-        image: mhefner1983/cpap-analyzer:dev
+        image: mhefner1983/solar-dashboard:latest
         ports:
         - containerPort: 80
