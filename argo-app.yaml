@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/mhefner/cpap-analyzer
+    repoURL: https://github.com/mhefner/myenergi_solar_dashboard.git
     targetRevision: HEAD
     path: overlay/dev
   destination:
