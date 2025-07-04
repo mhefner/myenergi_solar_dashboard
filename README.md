@@ -1,10 +1,10 @@
-☀️ Solar Data Dashboard
+# ☀️ Solar Data Dashboard
 
 Solar Data Dashboard is a browser-based tool for visualizing CSV data exported from MyEnergi products. It allows you to track and analyze solar energy generation, net grid import/export, and other metrics — all from a simple, elegant web interface.
 
 <!-- Optional: add a screenshot image of the UI -->
 
-🔧 Features
+# 🔧 Features
 
 📈 Interactive Charting via Chart.js
 📁 CSV Upload Support (MyEnergi format, including Eddi and inverter data)
@@ -25,7 +25,7 @@ Double-click index.html or open it in your browser of choice (Chrome/Firefox/Saf
 3. Upload Your CSV File
 Export a CSV from your MyEnergi device portal (e.g., Eddi, Zappi, etc.), then click "Upload Your CSV File" and select it. The dashboard will automatically parse and display the data.
 
-📊 Data Requirements
+# 📊 Data Requirements
 
 The CSV file should include the following headers (or a compatible superset):
 
