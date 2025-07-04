@@ -70,5 +70,5 @@ MIT License — feel free to use, modify, or redistribute. Attribution appreciat
 
 💬 Credits
 
-Made with ☕ and ☀️ by [Your Name or GitHub handle]
+Made with ☕ by [mhefner]
 Uses data from MyEnergi products and services.
