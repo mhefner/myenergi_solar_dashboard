@@ -16,6 +16,6 @@ spec:
         - name: dockerhub-secret
       containers:
       - name: solar-dashboard
-        image: mhefner1983/solar-dashboard:latest
+        image: mhefner1983/solar-dashboard:arm64
         ports:
         - containerPort: 80

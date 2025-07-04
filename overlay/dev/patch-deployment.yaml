@@ -7,5 +7,5 @@ spec:
     spec:
       containers:
         - name: solar-dashboard
-          image: mhefner1983/solar-dashboard:latest  # tag it differently for dev
+          image: mhefner1983/solar-dashboard:arm64  # tag it differently for dev
           imagePullPolicy: Always
