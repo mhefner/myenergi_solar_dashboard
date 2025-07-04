@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cpap-analyzer
+  name: solar-dashboard
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: cpap-analyzer
+      app: solar-dashboard
   template:
     metadata:
       labels:
-        app: cpap-analyzer
+        app: solar-dashboard
     spec:
       imagePullSecrets:
         - name: dockerhub-secret
       containers:
-      - name: analyzer
+      - name: solar-dashboard
         image: mhefner1983/solar-dashboard:latest
         ports:
         - containerPort: 80
